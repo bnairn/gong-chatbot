@@ -72,7 +72,7 @@ def _count_tokens(self, text: str) -> int:
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
     return len(self.tokenizer.encode(text))
     
-    def _chunk_to_metadata(self, chunk: TranscriptChunk) -> dict:
+def _chunk_to_metadata(self, chunk: TranscriptChunk) -> dict:
         return {"call_id": chunk.metadata.call_id, "call_title": chunk.metadata.call_title, "call_date": chunk.metadata.call_date, "chunk_index": chunk.metadata.chunk_index, "total_chunks": chunk.metadata.total_chunks, "speakers": ",".join(chunk.metadata.speakers_in_chunk), "customer_company": chunk.metadata.customer_company or "", "industry": chunk.metadata.industry or "", "deal_stage": chunk.metadata.deal_stage or "", "start_time": chunk.metadata.start_time, "end_time": chunk.metadata.end_time, "has_customer_speech": chunk.metadata.has_customer_speech, "has_rep_speech": chunk.metadata.has_rep_speech, "text": chunk.text}
     
     async def upsert_chunks(self, chunks: list[TranscriptChunk], batch_size: int = 100):
