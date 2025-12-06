@@ -26,8 +26,51 @@ class PineconeStore:
     def _get_embedding(self, text: str) -> list[float]:
         return self.openai.embeddings.create(model=self.embedding_model, input=text).data[0].embedding
     
-    def _get_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
-        return [item.embedding for item in self.openai.embeddings.create(model=self.embedding_model, input=texts).data]
+def _get_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
+    """Create embeddings for a batch of texts with proper token-based truncation"""
+    results = []
+    max_tokens = 8000  # Safe limit for text-embedding-3-small (actual limit: 8191)
+    
+    for text in texts:
+        try:
+            # Count tokens properly using tiktoken
+            token_count = self._count_tokens(text)
+            
+            if token_count > max_tokens:
+                log.warning(
+                    "truncating_text_for_embedding",
+                    original_tokens=token_count,
+                    max_tokens=max_tokens,
+                    text_preview=text[:100]
+                )
+                # Truncate by TOKENS, not characters
+                tokens = self.tokenizer.encode(text)[:max_tokens]
+                text = self.tokenizer.decode(tokens)
+            
+            resp = self.openai.embeddings.create(
+                model=self.embedding_model, 
+                input=text
+            )
+            results.append(resp.data[0].embedding)
+
+        except Exception as e:
+            log.error(
+                "embedding_failed", 
+                error=str(e), 
+                text_length=len(text),
+                token_count=self._count_tokens(text)
+            )
+            # DON'T return zero vectors - re-raise the error so sync job fails properly
+            raise
+    
+    return results
+
+def _count_tokens(self, text: str) -> int:
+    """Count tokens in text using tiktoken"""
+    if not hasattr(self, 'tokenizer'):
+        import tiktoken
+        self.tokenizer = tiktoken.encoding_for_model("gpt-4")
+    return len(self.tokenizer.encode(text))
     
     def _chunk_to_metadata(self, chunk: TranscriptChunk) -> dict:
         return {"call_id": chunk.metadata.call_id, "call_title": chunk.metadata.call_title, "call_date": chunk.metadata.call_date, "chunk_index": chunk.metadata.chunk_index, "total_chunks": chunk.metadata.total_chunks, "speakers": ",".join(chunk.metadata.speakers_in_chunk), "customer_company": chunk.metadata.customer_company or "", "industry": chunk.metadata.industry or "", "deal_stage": chunk.metadata.deal_stage or "", "start_time": chunk.metadata.start_time, "end_time": chunk.metadata.end_time, "has_customer_speech": chunk.metadata.has_customer_speech, "has_rep_speech": chunk.metadata.has_rep_speech, "text": chunk.text}

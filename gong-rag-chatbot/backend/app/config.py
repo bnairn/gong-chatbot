@@ -10,9 +10,10 @@ class Settings(BaseSettings):
     openai_api_key: str
     embedding_model: str = "text-embedding-3-small"
     chat_model: str = "gpt-4o"
-    chunk_size: int = 1000
+    chunk_size: int = 6000
     chunk_overlap: int = 200
     min_chunk_size: int = 100
+    max_embedding_tokens: int = 8000
     retrieval_top_k: int = 10
     rerank_top_k: int = 5
     max_context_tokens: int = 8000
