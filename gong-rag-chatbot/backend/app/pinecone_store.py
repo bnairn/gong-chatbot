@@ -98,6 +98,20 @@ class PineconeStore:
             "text": chunk.text
         }
     
+    async def call_exists(self, call_id: str) -> bool:
+        """Check if a call has already been indexed"""
+        try:
+            results = self.index.query(
+                vector=[0.0] * 1536,  # Dummy vector
+                top_k=1,
+                filter={"call_id": {"$eq": call_id}},
+                include_metadata=False
+            )
+            return len(results.matches) > 0
+        except Exception as e:
+            log.warning("call_exists_check_failed", call_id=call_id, error=str(e))
+            return False
+    
     async def upsert_chunks(self, chunks: list[TranscriptChunk], batch_size: int = 100):
         if not chunks:
             return
