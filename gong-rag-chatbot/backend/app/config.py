@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import Optional
 
 class Settings(BaseSettings):
     gong_access_key: str
@@ -19,6 +20,9 @@ class Settings(BaseSettings):
     max_context_tokens: int = 8000
     app_name: str = "Gong RAG Chatbot"
     debug: bool = False
+    slack_signing_secret: Optional[str] = None
+    slack_bot_token: Optional[str] = None
+    slack_app_token: Optional[str] = None
     
     class Config:
         env_file = ".env"

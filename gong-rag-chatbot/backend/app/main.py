@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
@@ -8,8 +8,11 @@ import uuid
 import json
 import structlog
 
+from slack_sdk import WebClient
+from slack_sdk.signature import SignatureVerifier
+
 from app.config import get_settings
-from app.models import ChatRequest, ChatResponse, SyncRequest, SyncJob, SyncStatus, IndexStats
+from app.models import ChatRequest, ChatResponse, SyncRequest, SyncJob, SyncStatus, IndexStats, SlackSlashCommand
 from app.gong_client import get_gong_client
 from app.chunker import TranscriptChunker
 from app.pinecone_store import get_pinecone_store
@@ -20,12 +23,26 @@ log = structlog.get_logger()
 # In-memory storage for sync jobs
 sync_jobs: dict[str, SyncJob] = {}
 
+# Slack integration
+slack_client: Optional[WebClient] = None
+slack_verifier: Optional[SignatureVerifier] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global slack_client, slack_verifier
     log.info("starting_application")
     get_pinecone_store()
     get_rag_pipeline()
+    
+    settings = get_settings()
+    if settings.slack_bot_token and settings.slack_signing_secret:
+        slack_client = WebClient(token=settings.slack_bot_token)
+        slack_verifier = SignatureVerifier(signing_secret=settings.slack_signing_secret)
+        log.info("slack_integration_enabled")
+    else:
+        log.info("slack_integration_disabled")
+    
     yield
 
 
@@ -176,6 +193,75 @@ async def get_example_queries():
             "What are the top 5 industries in recent calls?"
         ]
     }
+
+
+@app.post("/api/slack/command")
+async def slack_command(
+    request: Request,
+    token: str = Form(...),
+    team_id: str = Form(...),
+    team_domain: str = Form(...),
+    channel_id: str = Form(...),
+    channel_name: str = Form(...),
+    user_id: str = Form(...),
+    user_name: str = Form(...),
+    command: str = Form(...),
+    text: str = Form(...),
+    response_url: str = Form(...),
+    trigger_id: str = Form(...)
+):
+    if not slack_verifier:
+        raise HTTPException(status_code=500, detail="Slack integration not configured")
+    
+    # Verify Slack signature
+    body = await request.body()
+    timestamp = request.headers.get("X-Slack-Request-Timestamp")
+    signature = request.headers.get("X-Slack-Signature")
+    
+    if not slack_verifier.is_valid(body, timestamp, signature):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+    
+    # Process the command
+    if command != "/gong-chat":
+        return {"text": "Unknown command"}
+    
+    if not text.strip():
+        return {"text": "Please provide a question. Usage: /gong-chat What are the most common use cases?"}
+    
+    try:
+        # Create chat request
+        chat_request = ChatRequest(message=text.strip())
+        
+        # Get response from RAG pipeline
+        response = await get_rag_pipeline().query(chat_request)
+        
+        # Format response for Slack
+        sources_text = "\n\n".join([
+            f"• {source.call_title} ({source.call_date}) - Relevance: {source.relevance_score:.2f}\n  {source.excerpt[:200]}..."
+            for source in response.sources[:3]
+        ])
+        
+        slack_response = {
+            "response_type": "in_channel",
+            "text": response.answer,
+            "attachments": [
+                {
+                    "text": sources_text if sources_text else "No sources found"
+                }
+            ]
+        }
+        
+        # Send response back to Slack
+        import httpx
+        async with httpx.AsyncClient() as client:
+            await client.post(response_url, json=slack_response)
+        
+        # Return immediate response
+        return {"text": "Processing your query..."}
+        
+    except Exception as e:
+        log.error("slack_command_failed", error=str(e))
+        return {"text": f"Sorry, an error occurred: {str(e)}"}
 
 
 if __name__ == "__main__":

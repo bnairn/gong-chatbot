@@ -100,3 +100,16 @@ class IndexStats(BaseModel):
     date_range: dict
     top_companies: list[dict]
     top_industries: list[dict]
+
+class SlackSlashCommand(BaseModel):
+    token: str
+    team_id: str
+    team_domain: str
+    channel_id: str
+    channel_name: str
+    user_id: str
+    user_name: str
+    command: str
+    text: str
+    response_url: str
+    trigger_id: str
